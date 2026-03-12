@@ -55,23 +55,27 @@ analiza-szeregow-czasowych-projekts/
 Zbiór danych jest publicznie dostępny na platformie PhysioNet:
 
 ### Opcja A – wget (Linux/macOS)
+
 ```bash
 cd data/
 wget -r -N -c -np https://physionet.org/files/ptb-xl/1.0.3/
 ```
 
 ### Opcja B – narzędzie physionet (wymaga rejestracji)
+
 ```bash
 pip install wfdb
 python -c "import wfdb; wfdb.dl_database('ptb-xl', dl_dir='data/ptb-xl-1.0.3')"
 ```
 
 ### Opcja C – ręczne pobranie
+
 1. Przejdź na stronę: https://physionet.org/content/ptb-xl/1.0.3/
 2. Zaloguj się (wymagane) lub pobierz jako gość
 3. Pobierz archiwum ZIP i rozpakuj do katalogu `data/`
 
 **Docelowa struktura:**
+
 ```
 data/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/
     ptbxl_database.csv
@@ -95,6 +99,7 @@ pip install -r requirements.txt
 ```
 
 Weryfikacja instalacji:
+
 ```bash
 python3 -c "import wfdb, torch, sklearn; print('OK')"
 ```
@@ -115,11 +120,11 @@ Otwórz przeglądarkę pod adresem: `http://localhost:8888`
 
 ### Kolejność uruchamiania notebooków:
 
-| Notebook | Opis | Kontrola |
-|---|---|---|
-| `01_eda.ipynb` | Eksploracyjna Analiza Danych | Kontrola 1 |
-| `02_preprocessing.ipynb` | Potok przetwarzania + ocena jakości | **Kontrola 2** |
-| `03_classical_ml.ipynb` | Klasyczne metody ML (6 algorytmów) | **Kontrola 2** |
+| Notebook                 | Opis                                      | Kontrola       |
+| ------------------------ | ----------------------------------------- | -------------- |
+| `01_eda.ipynb`           | Eksploracyjna Analiza Danych              | Kontrola 1     |
+| `02_preprocessing.ipynb` | Potok przetwarzania + ocena jakości       | **Kontrola 2** |
+| `03_classical_ml.ipynb`  | Klasyczne metody ML (6 algorytmów)        | **Kontrola 2** |
 | `04_deep_learning.ipynb` | Głębokie sieci neuronowe (3 architektury) | **Kontrola 2** |
 
 **Ważne:** Uruchamiaj notebooki w kolejności 01 → 02 → 03 → 04.
@@ -142,13 +147,16 @@ Jeśli pobrałeś dane do innej lokalizacji, zmień tę ścieżkę.
 ## Parametry do dostosowania
 
 ### Rozmiar podzbioru (szybkość vs. jakość)
+
 W notebookach 03 i 04 możesz zmienić `N_PER_CLASS`:
+
 ```python
 N_PER_CLASS = 100    # 100 próbek/klasę – szybka demonstracja (default)
 N_PER_CLASS = None   # pełny zbiór – pełne wyniki (kilka godzin)
 ```
 
 ### Liczba epok (Notebook 04)
+
 ```python
 EPOCHS = 20    # szybka demonstracja
 EPOCHS = 50    # lepsze wyniki
@@ -178,6 +186,7 @@ Po uruchomieniu notebooków w katalogu `results/` pojawią się pliki PNG:
 ## Opis metod
 
 ### Klasyczne ML (Notebook 03)
+
 1. **Regresja Logistyczna** – liniowy klasyfikator softmax, regularyzacja L2
 2. **Las Losowy** – 100 drzew, Gini impurity, równoległe obliczenia
 3. **SVM (RBF)** – jądro radialną bazą, C=1.0, gamma='scale'
@@ -186,11 +195,13 @@ Po uruchomieniu notebooków w katalogu `results/` pojawią się pliki PNG:
 6. **Naiwny Bayes** – model bazowy (punkt odniesienia)
 
 ### Głębokie uczenie (Notebook 04)
+
 1. **CNN1D** – 3 bloki Conv1d(+BN+ReLU+MaxPool) + 2 FC, Dropout 0.5
 2. **ResNet1D** – 4 grupy bloków rezydualnych (64→128→256→512 kanałów)
 3. **BiLSTM** – 2-warstwowy LSTM bidirectional + mechanizm uwagi (attention)
 
 ### Przetwarzanie wstępne (Notebook 02)
+
 - Filtr pasmowoprzepustowy Butterwortha [0.5–40 Hz], rząd 4
 - Filtr notch IIR 50 Hz (zakłócenia sieciowe)
 - Usunięcie dryftu bazowego (filtr medianowy 200ms + 600ms)
@@ -202,6 +213,7 @@ Po uruchomieniu notebooków w katalogu `results/` pojawią się pliki PNG:
 ## Rozwiązywanie problemów
 
 **Błąd `ModuleNotFoundError: No module named 'wfdb'`**
+
 ```bash
 pip install wfdb
 ```
@@ -214,3 +226,68 @@ Zmniejsz `N_PER_CLASS = 50` i `EPOCHS = 10`.
 
 **Brak pamięci RAM**
 Zmniejsz `BATCH_SIZE = 16` w Notebook 04.
+
+---
+
+1. Pokaż strukturę projektu (1 min)
+
+Otwórz terminal i pokaż drzewo katalogów:  
+ find . -not -path './.git/\*' | sort
+Powiedz: "Projekt podzielony na moduły src/ (logika) i notebooks/ (demonstracja)"
+
+---
+
+2. Notebook 02 – Potok przetwarzania (4–5 min) ← najważniejszy dla K2
+
+To jest kluczowe. Uruchom komórki kolejno i zatrzymaj się na:
+
+- Ocena jakości sygnału – pokaż tabelę z SNR, clipping_ratio, quality_score
+- Wykres 5 kroków filtracji (preprocessing_steps.png) – bardzo efektowny
+- Porównanie widm przed/po filtracji – pokaż jak znika 50 Hz
+- Pochodne sygnału – powiedz że będą użyte jako dodatkowe cechy
+- Ekstrakcja cech – pokaż że masz 228 → 456 cech z pochodnymi
+
+---
+
+3. Notebook 03 – Klasyczne ML (3–4 min)
+
+- Uruchom evaluate_all_models(...) i pokaż jak kolejno trenują się modele
+- Zatrzymaj się na tabeli porównawczej – wszystkie 6 metod w jednym miejscu
+- Pokaż macierze pomyłek obok siebie
+- Pokaż feature importance z Random Forest – pytanie "które odprowadzenie jest najważniejsze?" jest ciekawe
+
+---
+
+4. Notebook 04 – Deep Learning (3–4 min)
+
+- Pokaż architekturę modeli (wydruk print(model)) – ResNet1D będzie robić wrażenie
+- Puść trening kilku epok live (lub pokaż gotowe krzywe uczenia)
+- Pokaż porównanie dokładności 3 architektur
+
+---
+
+Wskazówki techniczne
+
+Żeby nie czekać na trening live – w notebookach 03 i 04 zostaw N_PER_CLASS = 50 i EPOCHS = 5. Trening zajmie ~1 min i
+wygląda dynamicznie.
+
+Alternatywnie: przed prezentacją uruchom całe notebooki (Kernel → Restart & Run All) i zapisz z wypełnionymi outputami –
+wtedy tylko przewijasz i tłumaczysz.
+
+Masz już wykresy w results/ po uruchomieniu – możesz je też pokazać bezpośrednio jako pliki PNG.
+
+---
+
+Co powiedzieć o każdej części (pod kryteria K2)
+
+┌──────────────────────────────────┬─────────────────────────────────────────────────────────────┐
+│ Kryterium K2 │ Gdzie pokazać │
+├──────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+│ Kompletny potok przetwarzania │ Notebook 02, sekcja "Kroki potoku" na końcu │
+├──────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+│ Ocena jakości │ Notebook 02, sekcja 1 z histogramami │
+├──────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+│ Metody przetwarzania wstępnego │ Notebook 02, sekcje 2–4 (filtracja, normalizacja, pochodne) │
+├──────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+│ Wszystkie algorytmy klasyfikacji │ Notebook 03 (6 modeli ML) + Notebook 04 (3 DL) │
+└──────────────────────────────────┴─────────────────────────────────────────────────────────────┘
