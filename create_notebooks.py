@@ -1274,4 +1274,311 @@ print(f"Regularyzacja: Dropout, BatchNorm, Weight Decay, Gradient Clipping")
 
 save("04_deep_learning.ipynb", dl_cells)
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+# NOTEBOOK 5 – Wizualizacje (standalone, do prezentacji)
+# ═════════════════════════════════════════════════════════════════════════════
+
+viz_cells = [
+
+md("""# Notebook 5: Wizualizacje – Dashboard prezentacyjny
+
+Notebook generuje wszystkie wykresy potrzebne do prezentacji projektu.
+Można go uruchomić **po** Notebooku 02, 03 i 04 – wczytuje zapisane wyniki.
+
+Zawiera:
+- Porównanie sygnałów EKG wg klasy diagnostycznej
+- Cały potok przetwarzania krok po kroku
+- Widma częstotliwościowe przed/po filtracji
+- Porównanie metod normalizacji
+- Pochodne sygnału
+- Dashboard oceny jakości
+- Porównanie wszystkich modeli ML i DL
+- Macierze pomyłek
+- Ważność cech (Feature Importance)
+- Heatmapa F1-score per klasa
+"""),
+
+code("""\
+import os
+import sys
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.rcParams['figure.dpi'] = 120
+
+sys.path.insert(0, '..')
+from src.data_loader import (
+    load_ptbxl_metadata, build_labels, load_raw_data,
+    get_train_val_test_split, SUPERCLASSES,
+)
+from src.preprocessing import (
+    preprocess_pipeline, preprocess_batch,
+    bandpass_filter, notch_filter, remove_baseline_wander,
+)
+from src.visualization import (
+    plot_ecg_12lead, plot_ecg_comparison,
+    plot_preprocessing_steps, plot_spectra_comparison,
+    plot_normalization_comparison, plot_derivatives,
+    plot_quality_dashboard, plot_confusion_matrices,
+    plot_model_comparison, plot_feature_importance,
+    plot_training_curves, plot_class_distribution,
+    plot_per_class_metrics, CLASS_COLORS,
+)
+from src.preprocessing import assess_signal_quality
+
+os.makedirs('../results', exist_ok=True)
+
+DATA_PATH = '../data/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3'
+FS = 100
+print("Gotowe. Ustaw DATA_PATH jeśli inne niż domyślne.")
+"""),
+
+md("""## 1. Wczytanie danych (po jednym przykładzie z każdej klasy)"""),
+
+code("""\
+Y = load_ptbxl_metadata(DATA_PATH)
+Y = build_labels(Y, DATA_PATH)
+train_idx, _, _ = get_train_val_test_split(Y)
+
+# Po jednym przykładzie z każdej klasy
+demo_rows = {}
+for cls in SUPERCLASSES:
+    idx = Y[(Y.label_single == cls) & Y.index.isin(train_idx)].index[0]
+    demo_rows[cls] = Y.loc[idx]
+
+demo_df = Y.loc[list(demo_rows[cls].name if hasattr(demo_rows[cls], 'name') else k
+                     for k, _ in demo_rows.items())]
+# prostsze podejście:
+demo_df = pd.concat([
+    Y[(Y.label_single == cls) & Y.index.isin(train_idx)].head(1)
+    for cls in SUPERCLASSES
+])
+
+X_raw_demo = load_raw_data(demo_df, sampling_rate=FS, data_path=DATA_PATH)
+print(f"Wczytano {len(X_raw_demo)} sygnałów EKG (po 1 z każdej klasy)")
+"""),
+
+md("""## 2. Wykres 12-odprowadzeniowy EKG dla każdej klasy"""),
+
+code("""\
+for i, cls in enumerate(SUPERCLASSES):
+    fig = plot_ecg_12lead(
+        X_raw_demo[i], fs=FS,
+        title=f'Klasa: {cls} | {demo_df.iloc[i].get("report", "")}',
+        color=CLASS_COLORS[cls],
+        save_path=f'../results/viz_ecg_12lead_{cls}.png'
+    )
+    plt.show()
+    print(f"  Zapisano: results/viz_ecg_12lead_{cls}.png")
+"""),
+
+md("""## 3. Porównanie klas – jedno odprowadzenie"""),
+
+code("""\
+# Wszystkie klasy na jednym wykresie, odprowadzenie II
+signals_by_class = {cls: X_raw_demo[i] for i, cls in enumerate(SUPERCLASSES)}
+
+fig = plot_ecg_comparison(
+    signals_by_class, lead_idx=1, fs=FS,
+    save_path='../results/viz_ecg_class_comparison.png'
+)
+plt.show()
+print("Zapisano: results/viz_ecg_class_comparison.png")
+"""),
+
+md("""## 4. Rozkład klas"""),
+
+code("""\
+label_counts = Y['label_single'].value_counts().reindex(SUPERCLASSES)
+fig = plot_class_distribution(
+    label_counts,
+    save_path='../results/viz_class_distribution.png'
+)
+plt.show()
+"""),
+
+md("""## 5. Potok przetwarzania wstępnego"""),
+
+code("""\
+# Użyj sygnału klasy NORM jako przykładu
+example_raw = X_raw_demo[SUPERCLASSES.index('NORM')]
+
+fig = plot_preprocessing_steps(
+    example_raw, fs=FS, lead_idx=1,
+    save_path='../results/viz_preprocessing_steps.png'
+)
+plt.show()
+"""),
+
+md("""## 6. Widma częstotliwościowe"""),
+
+code("""\
+ecg_filtered = bandpass_filter(
+    notch_filter(remove_baseline_wander(example_raw, fs=FS), fs=FS),
+    fs=FS
+)
+fig = plot_spectra_comparison(
+    example_raw, ecg_filtered, fs=FS, lead_idx=1,
+    save_path='../results/viz_spectra_comparison.png'
+)
+plt.show()
+"""),
+
+md("""## 7. Porównanie metod normalizacji"""),
+
+code("""\
+fig = plot_normalization_comparison(
+    ecg_filtered, fs=FS, lead_idx=1,
+    save_path='../results/viz_normalization_comparison.png'
+)
+plt.show()
+"""),
+
+md("""## 8. Pochodne sygnału"""),
+
+code("""\
+ecg_processed = preprocess_pipeline(example_raw, fs=FS)
+fig = plot_derivatives(
+    ecg_processed, fs=FS, lead_idx=1,
+    save_path='../results/viz_derivatives.png'
+)
+plt.show()
+"""),
+
+md("""## 9. Dashboard oceny jakości
+
+Obliczamy metryki jakości dla 50 przykładowych sygnałów.
+"""),
+
+code("""\
+# Wczytaj więcej sygnałów do oceny jakości
+Y_qual = pd.concat([
+    Y[(Y.label_single == cls) & Y.index.isin(train_idx)].head(10)
+    for cls in SUPERCLASSES
+])
+X_qual_raw = load_raw_data(Y_qual, sampling_rate=FS, data_path=DATA_PATH)
+
+quality_list = [assess_signal_quality(ecg, fs=FS) for ecg in X_qual_raw]
+df_quality = pd.DataFrame(quality_list)
+df_quality['class'] = Y_qual['label_single'].values
+
+fig = plot_quality_dashboard(
+    df_quality,
+    save_path='../results/viz_quality_dashboard.png'
+)
+plt.show()
+"""),
+
+md("""## 10. Porównanie modeli ML
+
+> Uruchom najpierw Notebook 03, żeby wygenerować wyniki modeli.
+> Poniżej re-trenujemy szybko na małym zbiorze demo.
+"""),
+
+code("""\
+from sklearn.preprocessing import LabelEncoder
+from src.feature_extraction import extract_features_batch
+from src.classical_models import evaluate_all_models
+
+# Mały zbiór do szybkiej demonstracji (20 próbek/klasę)
+N = 20
+Y_tr = pd.concat([Y[(Y.label_single == cls) & Y.index.isin(train_idx)].head(N) for cls in SUPERCLASSES])
+Y_te = pd.concat([Y[(Y.label_single == cls) & ~Y.index.isin(train_idx) & ~Y.index.isin(train_idx)].head(N//4) for cls in SUPERCLASSES])
+_, val_idx, test_idx = get_train_val_test_split(Y)
+Y_te = pd.concat([Y[(Y.label_single == cls) & Y.index.isin(test_idx)].head(N//4) for cls in SUPERCLASSES])
+
+X_tr_raw = load_raw_data(Y_tr, FS, DATA_PATH)
+X_te_raw = load_raw_data(Y_te, FS, DATA_PATH)
+X_tr = extract_features_batch(preprocess_batch(X_tr_raw, FS, verbose=False), FS, verbose=False)
+X_te = extract_features_batch(preprocess_batch(X_te_raw, FS, verbose=False), FS, verbose=False)
+X_tr = np.nan_to_num(X_tr); X_te = np.nan_to_num(X_te)
+
+le = LabelEncoder(); le.fit(SUPERCLASSES)
+y_tr = le.transform(Y_tr['label_single'].values)
+y_te = le.transform(Y_te['label_single'].values)
+
+summary_df, all_results = evaluate_all_models(X_tr, y_tr, X_te, y_te, classes=list(le.classes_))
+"""),
+
+code("""\
+# Wykres porównawczy modeli
+fig = plot_model_comparison(
+    summary_df,
+    save_path='../results/viz_model_comparison.png'
+)
+plt.show()
+"""),
+
+code("""\
+# Macierze pomyłek
+cm_results = {
+    name: {
+        'confusion_matrix': r['confusion_matrix'],
+        'accuracy': r['accuracy'],
+        'f1_macro': r['f1_macro'],
+    }
+    for name, r in all_results.items()
+}
+fig = plot_confusion_matrices(
+    cm_results, list(le.classes_),
+    title='Macierze pomyłek – Klasyczne metody ML',
+    save_path='../results/viz_confusion_matrices_ml.png'
+)
+plt.show()
+"""),
+
+code("""\
+# Feature importance (Random Forest)
+from src.feature_extraction import get_feature_names
+
+rf_model = all_results['Random Forest']['model']
+importances = rf_model.feature_importances_
+feature_names = get_feature_names()
+
+fig = plot_feature_importance(
+    importances, feature_names, top_n=20,
+    save_path='../results/viz_feature_importance.png'
+)
+plt.show()
+"""),
+
+code("""\
+# Heatmapa F1 per klasa
+per_class_results = {
+    name: {'y_true': le.inverse_transform(all_results[name]['y_pred']),
+           'y_pred': le.inverse_transform(all_results[name]['y_pred'])}
+    for name in all_results
+}
+# Poprawka: używamy prawdziwych etykiet
+per_class_results = {
+    name: {'y_true': le.inverse_transform(y_te),
+           'y_pred': le.inverse_transform(r['y_pred'])}
+    for name, r in all_results.items()
+}
+
+fig = plot_per_class_metrics(
+    per_class_results, list(le.classes_),
+    metric='f1-score',
+    save_path='../results/viz_f1_heatmap.png'
+)
+plt.show()
+"""),
+
+md("""## 11. Podsumowanie – wszystkie wygenerowane pliki"""),
+
+code("""\
+import glob
+result_files = sorted(glob.glob('../results/viz_*.png'))
+print(f"Wygenerowano {len(result_files)} plików wizualizacji:")
+for f in result_files:
+    size_kb = os.path.getsize(f) // 1024
+    print(f"  {os.path.basename(f):50s}  {size_kb:4d} KB")
+"""),
+
+]
+
+save("05_visualizations.ipynb", viz_cells)
+
 print("\\n✓ Wszystkie notebooki zostały wygenerowane w katalogu notebooks/")
