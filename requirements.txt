@@ -1,0 +1,35 @@
+# Wymagania dla projektu klasyfikacji sygnałów EKG (PTB-XL)
+
+# Dane i wczytywanie sygnałów EKG
+wfdb==4.1.2
+
+# Obliczenia numeryczne i analiza danych
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.11.0
+
+# Uczenie maszynowe (klasyczne metody)
+scikit-learn>=1.3.0
+
+# Głębokie uczenie (sieci neuronowe)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Wizualizacja
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Narzędzia Jupyter
+jupyter>=1.0.0
+jupyterlab>=4.0.0
+ipykernel>=6.25.0
+ipywidgets>=8.0.0
+
+# Przetwarzanie sygnałów
+neurokit2>=0.2.0
+
+# Postęp i utils
+tqdm>=4.66.0
+
+# Opcjonalnie: przyspieszenie obliczeń
+# numba>=0.58.0
