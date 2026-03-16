@@ -20,6 +20,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
@@ -195,6 +196,145 @@ def train_evaluate_model(
         'train_time': train_time,
         'confusion_matrix': confusion_matrix(y_test, y_pred),
     }
+
+
+def get_param_grids() -> dict:
+    """
+    Zwraca słownik siatek hiperparametrów dla GridSearchCV.
+
+    Dla każdego modelu definiujemy kilka wartości kluczowych parametrów,
+    które mają największy wpływ na jakość klasyfikacji.
+    Klucze słownika odpowiadają nazwom modeli z get_classical_models().
+
+    Zwraca
+    ------
+    dict
+        {nazwa_modelu: {param: [wartości]}}
+    """
+    return {
+        # C = siła regularyzacji (mniejsze C → silniejsza regularyzacja)
+        'Logistic Regression': {
+            'clf__C': [0.01, 0.1, 1.0, 10.0, 100.0],
+        },
+
+        # n_estimators = liczba drzew; max_depth = głębokość drzewa
+        'Random Forest': {
+            'n_estimators': [50, 100, 200],
+            'max_depth':    [None, 10, 20],
+        },
+
+        # C = margines decyzyjny; gamma = zasięg jądra RBF
+        # Duże C + małe gamma → bardzo elastyczna granica (ryzyko overfitting)
+        'SVM (RBF)': {
+            'clf__C':     [0.1, 1.0, 10.0],
+            'clf__gamma': ['scale', 0.001, 0.01],
+        },
+
+        # k = liczba sąsiadów; metric = miara odległości
+        'KNN (k=5)': {
+            'clf__n_neighbors': [3, 5, 7, 11, 15],
+            'clf__metric':      ['euclidean', 'manhattan'],
+        },
+
+        # learning_rate i max_depth najbardziej wpływają na GB
+        'Gradient Boosting': {
+            'learning_rate': [0.05, 0.1, 0.2],
+            'max_depth':     [2, 3, 5],
+        },
+
+        # var_smoothing = wygładzanie wariancji (zapobiega dzieleniu przez 0)
+        'Naive Bayes': {
+            'var_smoothing': [1e-9, 1e-7, 1e-5, 1e-3],
+        },
+    }
+
+
+def tune_hyperparameters(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    cv: int = 3,
+    scoring: str = 'f1_macro',
+    n_jobs: int = -1,
+    verbose: bool = True,
+) -> dict:
+    """
+    Przeprowadza przeszukiwanie siatki (GridSearchCV) dla każdego modelu.
+
+    Dla każdego algorytmu:
+    1. Tworzy bazowy model (z get_classical_models)
+    2. Przeszukuje siatkę parametrów (get_param_grids)
+    3. Wybiera konfigurację z najlepszym F1-macro na walidacji krzyżowej
+    4. Zwraca wyoptymalizowane modele gotowe do ewaluacji
+
+    Parametry
+    ---------
+    X_train, y_train : np.ndarray
+        Dane treningowe.
+    cv : int
+        Liczba foldów walidacji krzyżowej (domyślnie 3 dla szybkości).
+    scoring : str
+        Metryka optymalizacji (domyślnie 'f1_macro' – ważna przy niezbalansowanych klasach).
+    n_jobs : int
+        Liczba wątków (-1 = wszystkie CPU).
+    verbose : bool
+        Czy drukować postęp.
+
+    Zwraca
+    ------
+    dict
+        {nazwa_modelu: {'best_model': model, 'best_params': dict,
+                        'best_score': float, 'cv_results': dict}}
+    """
+    base_models = get_classical_models()
+    param_grids = get_param_grids()
+    tuning_results = {}
+
+    for name, base_model in base_models.items():
+        grid = param_grids.get(name, {})
+        if not grid:
+            # Brak siatki – model bez hiperparametrów (np. rozszerzony NB)
+            tuning_results[name] = {
+                'best_model':  base_model,
+                'best_params': {},
+                'best_score':  None,
+                'cv_results':  None,
+            }
+            continue
+
+        if verbose:
+            print(f"\n{'─'*55}")
+            print(f"GridSearchCV: {name}")
+            print(f"  Parametry: {list(grid.keys())}")
+            total_fits = np.prod([len(v) for v in grid.values()]) * cv
+            print(f"  Łącznie dopasowań: {total_fits}")
+
+        t0 = time.time()
+        gs = GridSearchCV(
+            estimator=base_model,
+            param_grid=grid,
+            scoring=scoring,
+            cv=cv,
+            n_jobs=n_jobs,
+            refit=True,      # po szukaniu trenuje najlepszy model na całym X_train
+            return_train_score=True,
+        )
+        gs.fit(X_train, y_train)
+        elapsed = time.time() - t0
+
+        if verbose:
+            print(f"  Najlepsze parametry: {gs.best_params_}")
+            print(f"  Najlepszy {scoring} (CV): {gs.best_score_:.4f}")
+            print(f"  Czas: {elapsed:.1f}s")
+
+        tuning_results[name] = {
+            'best_model':  gs.best_estimator_,
+            'best_params': gs.best_params_,
+            'best_score':  gs.best_score_,
+            'cv_results':  gs.cv_results_,
+            'grid_search': gs,
+        }
+
+    return tuning_results
 
 
 def evaluate_all_models(

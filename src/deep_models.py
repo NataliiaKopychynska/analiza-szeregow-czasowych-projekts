@@ -560,6 +560,150 @@ def get_device() -> str:
     return 'cpu'
 
 
+def tune_dl_hyperparameters(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
+    tune_epochs: int = 10,
+    device: str = None,
+) -> dict:
+    """
+    Przeszukiwanie siatki hiperparametrów dla wszystkich 3 architektur DL.
+
+    Dla każdego modelu testujemy kombinacje:
+      - learning_rate : [1e-4, 5e-4, 1e-3, 5e-3]
+      - batch_size    : [16, 32, 64]
+      + hidden_size dla BiLSTM: [64, 128, 256]
+
+    Każda konfiguracja trenowana jest przez `tune_epochs` epok (domyślnie 10)
+    – wystarczająco by ocenić potencjał, nie za długo by to było wykonalne.
+    Kryterium wyboru: najlepsza dokładność na zbiorze walidacyjnym.
+
+    Parametry
+    ---------
+    X_train, y_train : np.ndarray
+        Dane treningowe (sygnały przetworzone).
+    X_val, y_val : np.ndarray
+        Dane walidacyjne.
+    tune_epochs : int
+        Liczba epok per konfiguracja (mała wartość dla szybkości).
+    device : str
+        Urządzenie PyTorch ('cuda', 'mps', 'cpu'). Domyślnie auto-detekcja.
+
+    Zwraca
+    ------
+    dict
+        {nazwa_modelu: {
+            'best_config'  : dict hiperparametrów,
+            'best_val_acc' : float,
+            'all_results'  : list dicts z wynikami wszystkich konfiguracji,
+            'histories'    : dict {config_label: historia walidacji}
+        }}
+    """
+    if device is None:
+        device = get_device()
+
+    # ── Siatki parametrów ────────────────────────────────────────────────────
+    lr_values    = [1e-4, 5e-4, 1e-3, 5e-3]
+    batch_sizes  = [16, 32, 64]
+    hidden_sizes = [64, 128, 256]   # tylko dla BiLSTM
+
+    tune_results = {}
+
+    # Pomocnicza funkcja: trening i ocena jednej konfiguracji
+    def _run_config(model, lr, batch_size, label):
+        train_ds = ECGDataset(X_train, y_train)
+        val_ds   = ECGDataset(X_val,   y_val)
+        tl = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=0)
+        vl = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=0)
+
+        trainer = Trainer(model, device=device, learning_rate=lr)
+        hist    = trainer.fit(tl, vl, epochs=tune_epochs, verbose=False)
+        best_acc = max(hist['val_acc'])
+        return best_acc, hist
+
+    # ────────────────────────────────────────────────────────────────────────
+    # CNN1D: przeszukiwanie lr × batch_size
+    # ────────────────────────────────────────────────────────────────────────
+    print(f"\n{'─'*55}")
+    print("Tuning CNN1D (lr × batch_size) ...")
+    cnn_results  = []
+    cnn_histories = {}
+
+    for lr in lr_values:
+        for bs in batch_sizes:
+            model = CNN1D(num_channels=12, num_classes=5)
+            label = f"lr={lr:.0e}_bs={bs}"
+            best_acc, hist = _run_config(model, lr, bs, label)
+            cnn_results.append({'lr': lr, 'batch_size': bs, 'val_acc': best_acc})
+            cnn_histories[label] = hist['val_acc']
+            print(f"  CNN1D  lr={lr:.0e}  bs={bs:2d}  → val_acc={best_acc:.4f}")
+
+    best_cnn = max(cnn_results, key=lambda x: x['val_acc'])
+    tune_results['CNN1D'] = {
+        'best_config':   best_cnn,
+        'best_val_acc':  best_cnn['val_acc'],
+        'all_results':   cnn_results,
+        'histories':     cnn_histories,
+    }
+    print(f"  ★ Najlepsza konfiguracja CNN1D: {best_cnn}")
+
+    # ────────────────────────────────────────────────────────────────────────
+    # ResNet1D: przeszukiwanie lr × batch_size
+    # ────────────────────────────────────────────────────────────────────────
+    print(f"\n{'─'*55}")
+    print("Tuning ResNet1D (lr × batch_size) ...")
+    resnet_results  = []
+    resnet_histories = {}
+
+    for lr in lr_values:
+        for bs in batch_sizes:
+            model = ResNet1D(num_channels=12, num_classes=5)
+            label = f"lr={lr:.0e}_bs={bs}"
+            best_acc, hist = _run_config(model, lr, bs, label)
+            resnet_results.append({'lr': lr, 'batch_size': bs, 'val_acc': best_acc})
+            resnet_histories[label] = hist['val_acc']
+            print(f"  ResNet lr={lr:.0e}  bs={bs:2d}  → val_acc={best_acc:.4f}")
+
+    best_resnet = max(resnet_results, key=lambda x: x['val_acc'])
+    tune_results['ResNet1D'] = {
+        'best_config':   best_resnet,
+        'best_val_acc':  best_resnet['val_acc'],
+        'all_results':   resnet_results,
+        'histories':     resnet_histories,
+    }
+    print(f"  ★ Najlepsza konfiguracja ResNet1D: {best_resnet}")
+
+    # ────────────────────────────────────────────────────────────────────────
+    # BiLSTM: przeszukiwanie lr × hidden_size (batch_size=32 fixed)
+    # ────────────────────────────────────────────────────────────────────────
+    print(f"\n{'─'*55}")
+    print("Tuning BiLSTM (lr × hidden_size, batch_size=32) ...")
+    lstm_results  = []
+    lstm_histories = {}
+
+    for lr in lr_values:
+        for hs in hidden_sizes:
+            model = BiLSTMClassifier(input_size=12, hidden_size=hs, num_classes=5)
+            label = f"lr={lr:.0e}_hs={hs}"
+            best_acc, hist = _run_config(model, lr, bs=32, label=label)
+            lstm_results.append({'lr': lr, 'hidden_size': hs, 'val_acc': best_acc})
+            lstm_histories[label] = hist['val_acc']
+            print(f"  BiLSTM lr={lr:.0e}  hs={hs:3d}  → val_acc={best_acc:.4f}")
+
+    best_lstm = max(lstm_results, key=lambda x: x['val_acc'])
+    tune_results['BiLSTM'] = {
+        'best_config':   best_lstm,
+        'best_val_acc':  best_lstm['val_acc'],
+        'all_results':   lstm_results,
+        'histories':     lstm_histories,
+    }
+    print(f"  ★ Najlepsza konfiguracja BiLSTM: {best_lstm}")
+
+    return tune_results
+
+
 def get_deep_models(num_channels: int = 12, num_classes: int = 5) -> dict:
     """
     Zwraca słownik wszystkich zaimplementowanych architektur DL.
